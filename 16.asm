@@ -1,91 +1,137 @@
-DATA SEGMENT  
-    STR1 DB "ENTER A STRING: ",'$'  
-    MAXLEN DB 100  
-    ACTUALLEN DB ?  
-    STRING DB 100 DUP('$')  
-    NEWLINE DB 10,13,'$'  
-    WORD_COUNT DB 0  
-DATA ENDS  
+INCLUDE "EMU8086.INC"
+.MODEL SMALL
+.STACK 100H
 
-CODE SEGMENT  
-MAIN PROC FAR  
+.DATA
+    STR1 DB "ENTER A STRING: $"
+    MAXLEN DB 100            ; MAXIMUM INPUT LENGTH
+    ACTCHAR DB ?             ; ACTUAL INPUT LENGTH
+    STRING DB 100 DUP('$')   ; INPUT BUFFER
+    NEWLINE DB 13,10,'$'     ; CORRECTED TO CR LF
+    COUNT DB 0               ; WORD COUNTER
+    TEN DW 10
+    STR2 DB "WORD COUNT: $"
+
+.CODE
+MAIN PROC FAR
     MOV AX, @DATA  
-    MOV DS, AX  
-
-    ; Display prompt message
-    MOV AH, 09H  
+    MOV DS, AX    
+    
+    ; DISPLAY INPUT PROMPT
     LEA DX, STR1  
+    MOV AH, 09H  
     INT 21H  
-
-    ; Read input string
+    
+    ; READ USER INPUT (DOS FUNCTION 0AH)
+    LEA DX, MAXLEN 
     MOV AH, 0AH  
-    LEA DX, MAXLEN  
     INT 21H  
 
-    MOV AL, ACTUALLEN  ; Get actual length entered
-    MOV AH, 0  
-    ADD STRING+1, AL   ; Add the length for correct termination  
-
-    LEA SI, STRING+1   ; SI points to the first character of input  
-    MOV CL, ACTUALLEN  ; CL stores the number of characters  
-
-    MOV WORD_COUNT, 0   ; Initialize word count  
-
-CONVERT:  
-    CMP [SI], '$'  
-    JE DISPLAY_WORD_COUNT  
-    CMP [SI], 20H  ; Space  
-    JE NEW_WORD  
-    CMP [SI], 'a'  
-    JB NEXT_CHAR  
-    CMP [SI], 'z'  
-    JA NEXT_CHAR  
-    SUB [SI], 20H  ; Convert to uppercase  
-
-NEXT_CHAR:  
-    INC SI  
-    LOOP CONVERT  
-    JMP DISPLAY_WORD_COUNT  
-
-NEW_WORD:  
-    MOV AH, 09H  
+    ; PRINT NEWLINE
     LEA DX, NEWLINE  
-    INT 21H  
-
-    INC WORD_COUNT  
-    INC SI  
-    LOOP CONVERT  
-
-DISPLAY_WORD_COUNT:  
     MOV AH, 09H  
+    INT 21H  
+    
+    ; POINT TO START OF STRING
+    LEA SI, STRING+2   
+    XOR CX, CX        
+    MOV CL, ACTCHAR    ; LOAD ACTUAL CHARACTER COUNT
+    MOV COUNT, 0       ; RESET WORD COUNTER
+    
+    MOV BL, ' '        ; TRACK PREVIOUS CHARACTER
+    
+PROCESS_STRING:
+    CMP CL, 0          ; EXIT LOOP WHEN ALL CHARACTERS PROCESSED
+    JE PRINT_COUNT
+    
+    MOV AL, [SI]       ; GET CURRENT CHARACTER
+    
+    ; CONVERT LOWERCASE TO UPPERCASE
+    CMP AL, 'a'        
+    JB CHECK_SPACE    
+    CMP AL, 'z'    
+    JA CHECK_SPACE    
+    SUB AL, 20H        ; CONVERT TO UPPERCASE
+    
+CHECK_SPACE:
+    CMP AL, ' '        ; CHECK IF CURRENT CHARACTER IS SPACE
+    JNE NOT_SPACE
+    
+    CMP BL, ' '        ; CHECK IF PREVIOUS CHARACTER WAS ALSO SPACE
+    JE SKIP_SPACE      ; IF YES, SKIP
+    
+    ; PRINT NEWLINE FOR WORD SEPARATION
     LEA DX, NEWLINE  
-    INT 21H  
-
     MOV AH, 09H  
-    LEA DX, STRING+1  
     INT 21H  
+    
+SKIP_SPACE:
+    MOV BL, AL         ; UPDATE PREVIOUS CHARACTER
+    JMP NEXT_CHAR
+    
+NOT_SPACE:
+    ; IF PREVIOUS WAS SPACE, INCREMENT WORD COUNT (NEW WORD DETECTED)
+    CMP BL, ' '        
+    JNE DISPLAY_CHAR
+    INC COUNT
+    
+DISPLAY_CHAR:
+    MOV DL, AL         
+    MOV AH, 02H        
+    INT 21H
+    
+    MOV BL, AL         ; UPDATE PREVIOUS CHARACTER
 
-    ; Print newline
-    MOV AH, 09H  
+NEXT_CHAR:
+    INC SI              
+    DEC CL              
+    JMP PROCESS_STRING  
+
+PRINT_COUNT:
+    ; HANDLE LAST WORD IF INPUT DOESN'T END WITH SPACE
+    CMP BL, ' '        
+    JE PRINT_RESULT
+    INC COUNT
+    
+PRINT_RESULT:
+    ; PRINT NEWLINE
     LEA DX, NEWLINE  
+    MOV AH, 09H  
     INT 21H  
-
-    ; Display word count
-    MOV AL, WORD_COUNT  
-    AAM  
-    ADD AX, '00'  
-
-    MOV DL, AH  
-    MOV AH, 02H  
+    
+    ; PRINT "WORD COUNT: "
+    LEA DX, STR2  
+    MOV AH, 09H  
     INT 21H  
-
-    MOV DL, AL  
-    MOV AH, 02H  
-    INT 21H  
-
+    
+    ; PRINT WORD COUNT
+    MOV AL, COUNT      
+    XOR AH, AH          
+    CALL PRINT_NUMBER  
+    
+    ; EXIT PROGRAM
     MOV AX, 4C00H  
     INT 21H  
+    
+MAIN ENDP
 
-MAIN ENDP  
-CODE ENDS  
-END MAIN  
+PRINT_NUMBER PROC NEAR
+    XOR CX, CX          
+NUMBER_LOOP:
+    XOR DX, DX          
+    DIV TEN             
+    PUSH DX             
+    INC CX              
+    TEST AX, AX         
+    JNZ NUMBER_LOOP     
+  
+PRINT_DIGITS:
+    POP DX              
+    ADD DL, '0'         
+    MOV AH, 02H         
+    INT 21H             
+    LOOP PRINT_DIGITS   
+    RET  
+PRINT_NUMBER ENDP
+
+END MAIN
